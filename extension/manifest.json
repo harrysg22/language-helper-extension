@@ -1,0 +1,33 @@
+{
+  "name": "Language Helper (Learning)",
+  "description": "Step-by-step extension for subtitles learning.",
+  "version": "0.1.0",
+  "manifest_version": 3,
+  "action": {
+    "default_title": "Language Helper"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://www.youtube-nocookie.com/*",
+    "https://hitv.vip/*",
+    "https://www.hitv.vip/*",
+    "https://home.hitv.vip/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://www.youtube-nocookie.com/*",
+        "https://hitv.vip/*",
+        "https://www.hitv.vip/*",
+        "https://home.hitv.vip/*"
+      ],
+      "js": ["content.js"],
+      "css": ["ui/overlay.css"]
+    }
+  ]
+}
