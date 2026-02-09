@@ -3,9 +3,8 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 const LIBRETRANSLATE_INSTANCES = [
-  "https://libretranslate.org",
-  "https://libretranslate.com/translate",
   "https://libretranslate.com",
+  "https://libretranslate.org",
 ];
 const LIBRETRANSLATE_API_KEY = "";
 
@@ -13,7 +12,7 @@ const translateText = async ({ text, source = "auto", target = "zh" }) => {
   let lastError = "Unknown error";
 
   for (const baseUrl of LIBRETRANSLATE_INSTANCES) {
-    const res = await fetch(`${baseUrl}/translate`, {
+    const response = await fetch(`${baseUrl}/translate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -28,28 +27,26 @@ const translateText = async ({ text, source = "auto", target = "zh" }) => {
       }),
     });
 
-    const contentType = res.headers.get("content-type") || "";
-
-    if (!res.ok) {
-      const textBody = await res.text();
-      lastError = `HTTP ${res.status} from ${baseUrl}. Body: ${textBody.slice(
-        0,
-        200
-      )}`;
-      continue;
+    if (response.ok) {
+      const data = await response.json();
+      return data.translatedText || "";
     }
 
-    if (!contentType.includes("application/json")) {
-      const textBody = await res.text();
-      lastError = `Expected JSON but got "${contentType}" from ${baseUrl}. Body starts: ${textBody.slice(
-        0,
-        200
-      )}`;
-      continue;
+    let errorDetail = "";
+    try {
+      const errorJson = await response.json();
+      errorDetail = errorJson.error || JSON.stringify(errorJson);
+    } catch {
+      try {
+        errorDetail = await response.text();
+      } catch {
+        errorDetail = "";
+      }
     }
 
-    const data = await res.json();
-    return data.translatedText || "";
+    lastError = `LibreTranslate ${response.status} from ${baseUrl}${
+      errorDetail ? `: ${errorDetail}` : ""
+    }`;
   }
 
   throw new Error(lastError);
