@@ -27,7 +27,7 @@
         "https://www.hitv.vip/*",
         "https://home.hitv.vip/*"
       ],
-      "js": ["content.js"],
+      "js": ["ui/pinyin-pro.js", "content.js"],
       "css": ["ui/overlay.css"]
     }
   ]

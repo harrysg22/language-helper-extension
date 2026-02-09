@@ -11,21 +11,49 @@
   status.id = "lr-learning-status";
   status.textContent = "Language Helper active";
 
+  const controls = document.createElement("div");
+  controls.id = "lr-learning-controls";
+
+  const toggle = document.createElement("button");
+  toggle.id = "lr-learning-toggle";
+  toggle.type = "button";
+  toggle.textContent = "Translation: ON";
+
+  const directionToggle = document.createElement("button");
+  directionToggle.id = "lr-learning-direction";
+  directionToggle.type = "button";
+  directionToggle.textContent = "Direction: EN→ZH";
+
+  const extensionToggle = document.createElement("button");
+  extensionToggle.id = "lr-learning-extension";
+  extensionToggle.type = "button";
+  extensionToggle.textContent = "Extension: ON";
+
   const line = document.createElement("div");
   line.id = "lr-learning-line";
   line.textContent = "Waiting for subtitles...";
 
+  const pinyinLine = document.createElement("div");
+  pinyinLine.id = "lr-learning-line-pinyin";
+  pinyinLine.textContent = "Pinyin will appear here.";
+
   const secondaryLine = document.createElement("div");
   secondaryLine.id = "lr-learning-line-secondary";
-  secondaryLine.textContent = "Secondary subtitle (mirrors primary for now).";
+  secondaryLine.textContent = "Translation will appear here.";
 
   const popup = document.createElement("div");
   popup.id = "lr-learning-popup";
   popup.textContent = "";
   popup.style.display = "none";
 
+  controls.appendChild(extensionToggle);
+  controls.appendChild(directionToggle);
+  controls.appendChild(toggle);
+
   overlay.appendChild(status);
+  overlay.appendChild(controls);
   overlay.appendChild(line);
+  overlay.appendChild(pinyinLine);
   overlay.appendChild(secondaryLine);
   overlay.appendChild(popup);
 
@@ -43,20 +71,263 @@
 
   let lastText = "";
 
-  const sourceLanguage = "en";
-  const targetLanguage = "zh";
+  let sourceLanguage = "en";
+  let targetLanguage = "zh";
   const cache = new Map();
   const lineCache = new Map();
+  const isPinyinReady = () => typeof globalThis?.pinyinPro?.pinyin === "function";
+  let lastTranslatedText = "";
+  const cedictMap = new Map();
+  let cedictLoadPromise = null;
+  let popupRequestId = 0;
+  let captionObserver = null;
+  let extensionEnabled = true;
+  let translationDirection = "en-zh";
+  let translateEnabled = true;
+  let translateTimer = null;
+  const translateDebounceMs = 350;
 
-  const showPopup = (target, word) => {
+  const updateDirection = () => {
+    if (translationDirection === "zh-en") {
+      sourceLanguage = "zh";
+      targetLanguage = "en";
+      return;
+    }
+    sourceLanguage = "en";
+    targetLanguage = "zh";
+  };
+
+  const updateToggleUI = () => {
+    extensionToggle.textContent = `Extension: ${extensionEnabled ? "ON" : "OFF"}`;
+    directionToggle.textContent =
+      translationDirection === "zh-en" ? "Direction: ZH→EN" : "Direction: EN→ZH";
+    toggle.textContent = `Translation: ${translateEnabled ? "ON" : "OFF"}`;
+    if (!extensionEnabled) {
+      status.textContent = "Language Helper paused";
+      line.textContent = "Extension is off.";
+      secondaryLine.textContent = "";
+      pinyinLine.textContent = "";
+      return;
+    }
+    status.textContent = "Language Helper active";
+    secondaryLine.textContent = translateEnabled
+      ? "Waiting for subtitles..."
+      : "Translation is off.";
+    if (!translateEnabled) {
+      pinyinLine.textContent = "";
+      return;
+    }
+    pinyinLine.textContent = isPinyinReady()
+      ? "Pinyin will appear here."
+      : "Pinyin not loaded (reload extension).";
+  };
+
+  const stopObserver = () => {
+    if (captionObserver) {
+      captionObserver.disconnect();
+      captionObserver = null;
+    }
+  };
+
+  const startObserver = (container) => {
+    stopObserver();
+    captionObserver = new MutationObserver(() => {
+      updateLine(readCaptionText());
+    });
+
+    captionObserver.observe(container, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    updateLine(readCaptionText());
+  };
+
+  extensionToggle.addEventListener("click", () => {
+    extensionEnabled = !extensionEnabled;
+    if (!extensionEnabled) {
+      stopObserver();
+      hidePopup();
+    } else {
+      initYouTubeCaptions();
+    }
+    updateToggleUI();
+  });
+
+  directionToggle.addEventListener("click", () => {
+    translationDirection = translationDirection === "zh-en" ? "en-zh" : "zh-en";
+    updateDirection();
+    lineCache.clear();
+    cache.clear();
+    if (extensionEnabled && lastText) {
+      const currentText = lastText;
+      lastText = "";
+      updateLine(currentText);
+    }
+    updateToggleUI();
+  });
+
+  toggle.addEventListener("click", () => {
+    translateEnabled = !translateEnabled;
+    if (!translateEnabled && translateTimer) {
+      clearTimeout(translateTimer);
+      translateTimer = null;
+    }
+    updateToggleUI();
+    hidePopup();
+    if (translateEnabled && lastText) {
+      const currentText = lastText;
+      lastText = "";
+      updateLine(currentText);
+    }
+  });
+  updateDirection();
+  updateToggleUI();
+  loadCedict();
+
+  const hasChinese = (text) => /[\u4e00-\u9fff]/.test(text);
+
+  const loadCedict = async () => {
+    if (cedictLoadPromise) {
+      return cedictLoadPromise;
+    }
+    const cedictUrl = chrome.runtime.getURL("data/cedict_ts.u8");
+    cedictLoadPromise = fetch(cedictUrl)
+      .then((response) => response.text())
+      .then((body) => {
+        body.split("\n").forEach((line) => {
+          if (!line || line.startsWith("#")) {
+            return;
+          }
+          const match = line.match(/^(\S+)\s+(\S+)\s+\[(.+?)\]\s+\/(.+)\/$/);
+          if (!match) {
+            return;
+          }
+          const [, traditional, simplified, pinyin, defsRaw] = match;
+          const defs = defsRaw.split("/").filter(Boolean);
+          const entry = { pinyin, defs };
+          if (!cedictMap.has(traditional)) {
+            cedictMap.set(traditional, entry);
+          }
+          if (!cedictMap.has(simplified)) {
+            cedictMap.set(simplified, entry);
+          }
+        });
+      })
+      .catch((error) => {
+        console.warn("[Language Helper] CEDICT load failed:", error);
+      });
+    return cedictLoadPromise;
+  };
+
+  const lookupCedict = async (word) => {
+    await loadCedict();
+    return cedictMap.get(word) || null;
+  };
+
+  const escapeHtml = (value) =>
+    String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const highlightExample = (exampleText, highlight) => {
+    if (!exampleText || !highlight) {
+      return escapeHtml(exampleText || "");
+    }
+    const safeExample = escapeHtml(exampleText);
+    const safeHighlight = escapeHtml(highlight);
+    if (!safeExample.includes(safeHighlight)) {
+      return safeExample;
+    }
+    return safeExample.split(safeHighlight).join(
+      `<span class="lr-popup-highlight">${safeHighlight}</span>`
+    );
+  };
+
+  const buildDynamicExample = (word) => {
+    if (!word) {
+      return "";
+    }
+    const trimmed = word.trim();
+    if (!trimmed) {
+      return "";
+    }
+    const length = Array.from(trimmed).length;
+    if (length === 1) {
+      return `例: 我喜欢${trimmed}。`;
+    }
+    if (length <= 3) {
+      return `例: 这是${trimmed}。`;
+    }
+    return `例: 我在学${trimmed}。`;
+  };
+
+  const setPopupContent = (meaningText, exampleText, highlightToken = "") => {
+    popup.innerHTML = "";
+    const meaning = document.createElement("div");
+    meaning.className = "lr-popup-meaning";
+    meaning.textContent = meaningText;
+    popup.appendChild(meaning);
+    if (exampleText) {
+      const example = document.createElement("div");
+      example.className = "lr-popup-example";
+      example.innerHTML = highlightExample(exampleText, highlightToken);
+      popup.appendChild(example);
+    }
+  };
+
+  const showPopup = async (target, word, mode = "en") => {
+    const requestId = ++popupRequestId;
+    if (!extensionEnabled) {
+      popup.textContent = "Extension is off.";
+      popup.style.display = "block";
+      const rect = target.getBoundingClientRect();
+      popup.style.left = `${Math.round(rect.left)}px`;
+      popup.style.top = `${Math.round(rect.top - 28)}px`;
+      return;
+    }
+    if (!translateEnabled) {
+      popup.textContent = "Translation is off.";
+      popup.style.display = "block";
+      const rect = target.getBoundingClientRect();
+      popup.style.left = `${Math.round(rect.left)}px`;
+      popup.style.top = `${Math.round(rect.top - 28)}px`;
+      return;
+    }
     popup.textContent = `${word} → (translating...)`;
     popup.style.display = "block";
     const rect = target.getBoundingClientRect();
     popup.style.left = `${Math.round(rect.left)}px`;
     popup.style.top = `${Math.round(rect.top - 28)}px`;
 
+    if (mode === "zh") {
+      if (!hasChinese(word)) {
+        popup.style.display = "none";
+        return;
+      }
+      popup.textContent = `${word} → (looking up...)`;
+      const entry = await lookupCedict(word);
+      if (requestId !== popupRequestId) {
+        return;
+      }
+      if (!entry) {
+        popup.textContent = `${word} → (no match)`;
+        return;
+      }
+      const meaning = entry.defs?.[0] || "definition unavailable";
+      const example = buildDynamicExample(word);
+      setPopupContent(`${word} → ${meaning}`, example, word);
+      return;
+    }
+
     if (cache.has(word)) {
-      popup.textContent = `${word} → ${cache.get(word)}`;
+      const cached = cache.get(word);
+      const example = hasChinese(lastTranslatedText) ? `例: ${lastTranslatedText}` : "";
+      setPopupContent(`${word} → ${cached}`, example, word);
       return;
     }
 
@@ -70,73 +341,197 @@
         },
       },
       (response) => {
+        if (requestId !== popupRequestId) {
+          return;
+        }
         if (!response || !response.ok) {
           const errorText = response?.error ? `error: ${response.error}` : "translation error";
           popup.textContent = `${word} → (${errorText})`;
           return;
         }
         cache.set(word, response.translatedText);
-        popup.textContent = `${word} → ${response.translatedText}`;
+        const example = hasChinese(lastTranslatedText) ? `例: ${lastTranslatedText}` : "";
+        setPopupContent(`${word} → ${response.translatedText}`, example, word);
       }
     );
   };
 
   const hidePopup = () => {
+    popupRequestId += 1;
     popup.style.display = "none";
   };
 
-  const renderInteractiveLine = (text) => {
-    line.textContent = "";
-    const tokens = text.split(/(\s+)/);
+  const getPinyin = (text) => {
+    if (!text) {
+      return "";
+    }
+    const engine = globalThis?.pinyinPro?.pinyin;
+    if (typeof engine !== "function") {
+      return "";
+    }
+    try {
+      const result = engine(text, { toneType: "symbol", type: "array" });
+      return Array.isArray(result) ? result.join(" ") : String(result);
+    } catch (error) {
+      console.warn("[Language Helper] Pinyin error:", error);
+      return "";
+    }
+  };
+
+  const renderChineseStack = (text) => {
+    secondaryLine.textContent = "";
+    const engine = globalThis?.pinyinPro?.pinyin;
+    const chars = Array.from(text);
+    chars.forEach((char) => {
+      if (char.trim() === "") {
+        secondaryLine.appendChild(document.createTextNode(char));
+        return;
+      }
+      if (!hasChinese(char)) {
+        secondaryLine.appendChild(document.createTextNode(char));
+        return;
+      }
+      const wrapper = document.createElement("span");
+      wrapper.className = "lr-stack";
+
+      const pinyin = document.createElement("span");
+      pinyin.className = "lr-stack-pinyin";
+      pinyin.textContent = typeof engine === "function" ? engine(char, { toneType: "symbol" }) : "";
+
+      const hanzi = document.createElement("span");
+      hanzi.className = "lr-stack-char";
+      hanzi.textContent = char;
+
+      const entry = cedictMap.get(char);
+      const meaning = document.createElement("span");
+      meaning.className = "lr-stack-meaning";
+      meaning.textContent = entry?.defs?.[0] || "";
+
+      wrapper.appendChild(pinyin);
+      wrapper.appendChild(hanzi);
+      wrapper.appendChild(meaning);
+      secondaryLine.appendChild(wrapper);
+    });
+  };
+
+  const renderInteractiveLine = (targetLine, text, mode = "en") => {
+    targetLine.textContent = "";
+    const tokens = mode === "zh" ? Array.from(text) : text.split(/(\s+)/);
     tokens.forEach((token) => {
       if (token.trim() === "") {
-        line.appendChild(document.createTextNode(token));
+        targetLine.appendChild(document.createTextNode(token));
+        return;
+      }
+      if (mode === "zh" && !hasChinese(token)) {
+        targetLine.appendChild(document.createTextNode(token));
         return;
       }
       const span = document.createElement("span");
       span.className = "lr-learning-word";
       span.textContent = token;
-      span.addEventListener("mouseenter", () => showPopup(span, token));
+      span.addEventListener("mouseenter", () => showPopup(span, token, mode));
       span.addEventListener("mouseleave", hidePopup);
-      line.appendChild(span);
+      targetLine.appendChild(span);
     });
   };
 
+  const renderSecondaryLine = (text) => {
+    if (!text) {
+      secondaryLine.textContent = "";
+      return;
+    }
+    if (!extensionEnabled) {
+      secondaryLine.textContent = "";
+      return;
+    }
+    const mode = hasChinese(text) ? "zh" : "en";
+    if (mode === "zh") {
+      renderChineseStack(text);
+      pinyinLine.style.display = "none";
+      return;
+    }
+    pinyinLine.style.display = "block";
+    renderInteractiveLine(secondaryLine, text, mode);
+  };
+
   const updateLine = (text) => {
+    if (!extensionEnabled) {
+      return;
+    }
     if (!text) {
       line.textContent = "Captions not detected yet.";
       hidePopup();
-      secondaryLine.textContent = "Secondary subtitle (waiting...)";
+      secondaryLine.textContent = translateEnabled
+        ? "Secondary subtitle (waiting...)"
+        : "Translation is off.";
+      pinyinLine.textContent = translateEnabled ? "Pinyin (waiting...)" : "";
       return;
     }
     if (text !== lastText) {
       lastText = text;
-      renderInteractiveLine(text);
+      renderInteractiveLine(line, text, "en");
+      if (!translateEnabled) {
+        secondaryLine.textContent = "Translation is off.";
+        pinyinLine.textContent = "";
+        return;
+      }
       if (lineCache.has(text)) {
-        secondaryLine.textContent = lineCache.get(text);
+        const cached = lineCache.get(text);
+        if (cached && typeof cached === "object") {
+          lastTranslatedText = cached.translation || "";
+          renderSecondaryLine(cached.translation || "");
+          pinyinLine.textContent = cached.pinyin || "";
+        } else {
+          lastTranslatedText = cached || "";
+          renderSecondaryLine(cached || "");
+          pinyinLine.textContent = "";
+        }
         return;
       }
 
       secondaryLine.textContent = "Translating...";
-      chrome.runtime.sendMessage(
-        {
-          type: "translate",
-          payload: {
-            text,
-            source: sourceLanguage,
-            target: targetLanguage,
+      pinyinLine.textContent = "Pinyin (translating...)";
+
+      if (translateTimer) {
+        clearTimeout(translateTimer);
+      }
+
+      translateTimer = setTimeout(() => {
+        const requestedText = text;
+        chrome.runtime.sendMessage(
+          {
+            type: "translate",
+            payload: {
+              text: requestedText,
+              source: sourceLanguage,
+              target: targetLanguage,
+            },
           },
-        },
-        (response) => {
-          if (!response || !response.ok) {
-            const errorText = response?.error ? `error: ${response.error}` : "translation error";
-            secondaryLine.textContent = `(${errorText})`;
-            return;
+          (response) => {
+            if (requestedText !== lastText) {
+              return;
+            }
+            if (!response || !response.ok) {
+              const errorText = response?.error ? `error: ${response.error}` : "translation error";
+              secondaryLine.textContent = `(${errorText})`;
+              pinyinLine.textContent = "";
+              return;
+            }
+            const translatedText = response.translatedText;
+            const chineseRegex = /[\u4e00-\u9fff]/;
+            const pinyinSource = chineseRegex.test(translatedText) ? translatedText : text;
+            const pinyin = getPinyin(pinyinSource);
+            lineCache.set(requestedText, { translation: translatedText, pinyin });
+            lastTranslatedText = translatedText;
+            renderSecondaryLine(translatedText);
+            if (!pinyin && !isPinyinReady()) {
+              pinyinLine.textContent = "Pinyin not loaded (reload extension).";
+              return;
+            }
+            pinyinLine.textContent = pinyin;
           }
-          lineCache.set(text, response.translatedText);
-          secondaryLine.textContent = response.translatedText;
-        }
-      );
+        );
+      }, translateDebounceMs);
     }
   };
 
@@ -158,21 +553,10 @@
     return "";
   };
 
-  const startObserver = (container) => {
-    const observer = new MutationObserver(() => {
-      updateLine(readCaptionText());
-    });
-
-    observer.observe(container, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-
-    updateLine(readCaptionText());
-  };
-
   const initYouTubeCaptions = () => {
+    if (!extensionEnabled) {
+      return;
+    }
     const container = document.querySelector(".ytp-caption-window-container");
     if (container) {
       startObserver(container);
