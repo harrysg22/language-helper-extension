@@ -15,7 +15,9 @@
     "https://www.youtube-nocookie.com/*",
     "https://hitv.vip/*",
     "https://www.hitv.vip/*",
-    "https://home.hitv.vip/*"
+    "https://home.hitv.vip/*",
+    "https://libretranslate.com/*",
+    "https://libretranslate.org/*"
   ],
   "content_scripts": [
     {

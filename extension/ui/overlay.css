@@ -9,5 +9,38 @@
   padding: 8px 12px;
   border-radius: 8px;
   max-width: 320px;
+  pointer-events: auto;
+}
+
+#lr-learning-status {
+  font-size: 12px;
+  opacity: 0.8;
+  margin-bottom: 4px;
+}
+
+#lr-learning-line {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+#lr-learning-line-secondary {
+  margin-top: 2px;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.lr-learning-word {
+  cursor: help;
+}
+
+#lr-learning-popup {
+  position: fixed;
+  z-index: 2147483647;
+  background: rgba(20, 20, 20, 0.95);
+  color: #fff;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
   pointer-events: none;
+  white-space: nowrap;
 }
