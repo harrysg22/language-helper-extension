@@ -2,54 +2,34 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log("Language Helper installed");
 });
 
-const LIBRETRANSLATE_INSTANCES = [
-  "https://libretranslate.com",
-  "https://libretranslate.org",
-];
-const LIBRETRANSLATE_API_KEY = "";
+const MYMEMORY_URL = "https://api.mymemory.translated.net/get";
 
-const translateText = async ({ text, source = "auto", target = "zh" }) => {
-  let lastError = "Unknown error";
+const translateText = async ({ text, source = "en", target = "zh" }) => {
+  const query = new URLSearchParams({
+    q: text,
+    langpair: `${source}|${target}`,
+  });
 
-  for (const baseUrl of LIBRETRANSLATE_INSTANCES) {
-    const response = await fetch(`${baseUrl}/translate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        q: text,
-        source,
-        target,
-        format: "text",
-        api_key: LIBRETRANSLATE_API_KEY || undefined,
-      }),
-    });
+  const response = await fetch(`${MYMEMORY_URL}?${query.toString()}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
 
-    if (response.ok) {
-      const data = await response.json();
-      return data.translatedText || "";
-    }
-
-    let errorDetail = "";
-    try {
-      const errorJson = await response.json();
-      errorDetail = errorJson.error || JSON.stringify(errorJson);
-    } catch {
-      try {
-        errorDetail = await response.text();
-      } catch {
-        errorDetail = "";
-      }
-    }
-
-    lastError = `LibreTranslate ${response.status} from ${baseUrl}${
-      errorDetail ? `: ${errorDetail}` : ""
-    }`;
+  if (!response.ok) {
+    const textBody = await response.text();
+    throw new Error(`MyMemory HTTP ${response.status}: ${textBody.slice(0, 200)}`);
   }
 
-  throw new Error(lastError);
+  const data = await response.json();
+  const status = data?.responseStatus;
+  if (status !== 200) {
+    const details = data?.responseDetails || "Unknown error";
+    throw new Error(`MyMemory error ${status}: ${details}`);
+  }
+
+  return data?.responseData?.translatedText || "";
 };
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

@@ -43,7 +43,7 @@
 
   let lastText = "";
 
-  // here i change the language 
+  const sourceLanguage = "en";
   const targetLanguage = "zh";
   const cache = new Map();
 
@@ -64,7 +64,7 @@
         type: "translate",
         payload: {
           text: word,
-          source: "auto",
+          source: sourceLanguage,
           target: targetLanguage,
         },
       },
