@@ -46,6 +46,7 @@
   const sourceLanguage = "en";
   const targetLanguage = "zh";
   const cache = new Map();
+  const lineCache = new Map();
 
   const showPopup = (target, word) => {
     popup.textContent = `${word} → (translating...)`;
@@ -111,7 +112,31 @@
     if (text !== lastText) {
       lastText = text;
       renderInteractiveLine(text);
-      secondaryLine.textContent = text;
+      if (lineCache.has(text)) {
+        secondaryLine.textContent = lineCache.get(text);
+        return;
+      }
+
+      secondaryLine.textContent = "Translating...";
+      chrome.runtime.sendMessage(
+        {
+          type: "translate",
+          payload: {
+            text,
+            source: sourceLanguage,
+            target: targetLanguage,
+          },
+        },
+        (response) => {
+          if (!response || !response.ok) {
+            const errorText = response?.error ? `error: ${response.error}` : "translation error";
+            secondaryLine.textContent = `(${errorText})`;
+            return;
+          }
+          lineCache.set(text, response.translatedText);
+          secondaryLine.textContent = response.translatedText;
+        }
+      );
     }
   };
 
