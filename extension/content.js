@@ -57,19 +57,32 @@
   overlay.appendChild(secondaryLine);
   overlay.appendChild(popup);
 
-  document.documentElement.appendChild(overlay);
+  const appendOverlay = () => document.documentElement.appendChild(overlay);
   console.log("[Language Helper] content script injected on", window.location.href);
 
   const isYouTube =
     window.location.hostname.includes("youtube.com") ||
     window.location.hostname.includes("youtube-nocookie.com");
 
-  if (!isYouTube) {
-    line.textContent = "YouTube reader only (for now).";
+  const isHitv =
+    window.location.hostname.includes("hitv.vip");
+
+  if (!isYouTube && !isHitv) {
+    line.textContent = "YouTube and HiTV only (for now).";
     return;
   }
 
+  if (isHitv && window !== window.top) {
+    return;
+  }
+
+  if (isYouTube || isHitv) {
+    appendOverlay();
+  }
+
   let lastText = "";
+  let hitvPollInterval = null;
+  let hitvBodyObserver = null;
 
   let sourceLanguage = "en";
   let targetLanguage = "zh";
@@ -148,9 +161,17 @@
     extensionEnabled = !extensionEnabled;
     if (!extensionEnabled) {
       stopObserver();
+      if (hitvPollInterval) {
+        clearInterval(hitvPollInterval);
+        hitvPollInterval = null;
+      }
+      if (hitvBodyObserver) {
+        hitvBodyObserver.disconnect();
+        hitvBodyObserver = null;
+      }
       hidePopup();
     } else {
-      initYouTubeCaptions();
+      initCaptions();
     }
     updateToggleUI();
   });
@@ -182,10 +203,6 @@
       updateLine(currentText);
     }
   });
-  updateDirection();
-  updateToggleUI();
-  loadCedict();
-
   const hasChinese = (text) => /[\u4e00-\u9fff]/.test(text);
 
   const loadCedict = async () => {
@@ -225,6 +242,10 @@
     await loadCedict();
     return cedictMap.get(word) || null;
   };
+
+  updateDirection();
+  updateToggleUI();
+  loadCedict();
 
   const escapeHtml = (value) =>
     String(value)
@@ -535,7 +556,7 @@
     }
   };
 
-  const readCaptionText = () => {
+  const readYouTubeCaptionText = () => {
     const segments = document.querySelectorAll(".ytp-caption-segment");
     if (segments.length > 0) {
       const text = Array.from(segments)
@@ -553,10 +574,68 @@
     return "";
   };
 
-  const initYouTubeCaptions = () => {
-    if (!extensionEnabled) {
-      return;
+  const queryHitvIncludingShadow = (root, selector) => {
+    const r = root || document;
+    const found = r.querySelector(selector);
+    if (found) return found;
+    const all = r.querySelectorAll("*");
+    for (const node of all) {
+      if (node.shadowRoot) {
+        const inner = node.shadowRoot.querySelector(selector);
+        if (inner) return inner;
+        const inShadow = queryHitvIncludingShadow(node.shadowRoot, selector);
+        if (inShadow) return inShadow;
+      }
     }
+    return null;
+  };
+
+  const queryHitvAllIncludingShadow = (root, selector) => {
+    const r = root || document;
+    const found = r.querySelectorAll(selector);
+    if (found.length) return found;
+    const all = r.querySelectorAll("*");
+    for (const node of all) {
+      if (node.shadowRoot) {
+        const inner = node.shadowRoot.querySelectorAll(selector);
+        if (inner.length) return inner;
+        const inShadow = queryHitvAllIncludingShadow(node.shadowRoot, selector);
+        if (inShadow.length) return inShadow;
+      }
+    }
+    return [];
+  };
+
+  const readHitvCaptionText = () => {
+    const wrapper = queryHitvIncludingShadow(document, ".hiplayer-subtitle-wrapper");
+    const spans = wrapper
+      ? wrapper.querySelectorAll(".subtitle-cue span")
+      : queryHitvAllIncludingShadow(document, ".subtitle-cue span");
+    if (spans.length) {
+      return Array.from(spans)
+        .map((s) => s.textContent.trim())
+        .filter(Boolean)
+        .join(" ");
+    }
+    const cues = queryHitvAllIncludingShadow(document, ".subtitle-cue");
+    if (cues.length) {
+      return Array.from(cues)
+        .map((c) => c.textContent.trim())
+        .filter(Boolean)
+        .join(" ");
+    }
+    return "";
+  };
+
+  const readCaptionText = () => {
+    if (isHitv) return readHitvCaptionText();
+    if (isYouTube) return readYouTubeCaptionText();
+    return "";
+  };
+
+  const initYouTubeCaptions = () => {
+    if (!extensionEnabled) return;
+
     const container = document.querySelector(".ytp-caption-window-container");
     if (container) {
       startObserver(container);
@@ -566,5 +645,36 @@
     setTimeout(initYouTubeCaptions, 1000);
   };
 
-  initYouTubeCaptions();
+  const initHitvCaptions = () => {
+    if (!extensionEnabled) return;
+
+    appendOverlay();
+
+    if (hitvPollInterval) {
+      clearInterval(hitvPollInterval);
+      hitvPollInterval = null;
+    }
+
+    hitvPollInterval = setInterval(() => {
+      if (!extensionEnabled) return;
+      chrome.runtime.sendMessage({ type: "getHitvSubtitle" }, (response) => {
+        if (chrome.runtime.lastError) return;
+        const text = response?.text;
+        if (text) updateLine(text);
+      });
+    }, 280);
+
+    chrome.runtime.sendMessage({ type: "getHitvSubtitle" }, (response) => {
+      if (chrome.runtime.lastError) return;
+      const text = response?.text;
+      if (text) updateLine(text);
+    });
+  };
+
+  const initCaptions = () => {
+    if (isYouTube) initYouTubeCaptions();
+    else if (isHitv) initHitvCaptions();
+  };
+
+  initCaptions();
 })();

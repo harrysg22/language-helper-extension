@@ -32,7 +32,43 @@ const translateText = async ({ text, source = "en", target = "zh" }) => {
   return data?.responseData?.translatedText || "";
 };
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+function getHitvSubtitleFromPage() {
+  const spans = document.querySelectorAll(".subtitle-cue span");
+  if (spans.length) {
+    return Array.from(spans)
+      .map((s) => s.textContent.trim())
+      .filter(Boolean)
+      .join(" ");
+  }
+  const cues = document.querySelectorAll(".subtitle-cue");
+  return Array.from(cues)
+    .map((c) => c.textContent.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "getHitvSubtitle") {
+    const tabId = sender.tab?.id;
+    if (!tabId) {
+      sendResponse({ text: "" });
+      return;
+    }
+    chrome.scripting
+      .executeScript({
+        target: { tabId, allFrames: true },
+        func: getHitvSubtitleFromPage,
+        world: "MAIN",
+      })
+      .then((results) => {
+        const text =
+          results?.map((r) => r.result).find((t) => t && typeof t === "string") || "";
+        sendResponse({ text });
+      })
+      .catch(() => sendResponse({ text: "" }));
+    return true;
+  }
+
   if (message?.type !== "translate") {
     return;
   }
