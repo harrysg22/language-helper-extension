@@ -58,6 +58,20 @@
   overlay.appendChild(popup);
 
   const appendOverlay = () => document.documentElement.appendChild(overlay);
+
+  const syncOverlayToFullscreen = () => {
+    const fs = document.fullscreenElement ?? document.webkitFullscreenElement;
+    const target = fs || document.documentElement;
+    if (overlay.parentElement !== target) target.appendChild(overlay);
+  };
+
+  const onFullscreenChange = () => {
+    syncOverlayToFullscreen();
+  };
+
+  document.addEventListener("fullscreenchange", onFullscreenChange);
+  document.addEventListener("webkitfullscreenchange", onFullscreenChange);
+
   console.log("[Language Helper] content script injected on", window.location.href);
 
   const isYouTube =
@@ -126,13 +140,18 @@
     secondaryLine.textContent = translateEnabled
       ? "Waiting for subtitles..."
       : "Translation is off.";
-    if (!translateEnabled) {
+    if (hasChinese(lastText)) {
+      pinyinLine.style.display = "none";
       pinyinLine.textContent = "";
-      return;
+    } else if (translateEnabled) {
+      pinyinLine.style.display = "block";
+      pinyinLine.textContent = isPinyinReady()
+        ? "Pinyin will appear here."
+        : "Pinyin not loaded (reload extension).";
+    } else {
+      pinyinLine.style.display = "none";
+      pinyinLine.textContent = "";
     }
-    pinyinLine.textContent = isPinyinReady()
-      ? "Pinyin will appear here."
-      : "Pinyin not loaded (reload extension).";
   };
 
   const stopObserver = () => {
@@ -197,7 +216,7 @@
     }
     updateToggleUI();
     hidePopup();
-    if (translateEnabled && lastText) {
+    if (lastText) {
       const currentText = lastText;
       lastText = "";
       updateLine(currentText);
@@ -255,50 +274,12 @@
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
 
-  const highlightExample = (exampleText, highlight) => {
-    if (!exampleText || !highlight) {
-      return escapeHtml(exampleText || "");
-    }
-    const safeExample = escapeHtml(exampleText);
-    const safeHighlight = escapeHtml(highlight);
-    if (!safeExample.includes(safeHighlight)) {
-      return safeExample;
-    }
-    return safeExample.split(safeHighlight).join(
-      `<span class="lr-popup-highlight">${safeHighlight}</span>`
-    );
-  };
-
-  const buildDynamicExample = (word) => {
-    if (!word) {
-      return "";
-    }
-    const trimmed = word.trim();
-    if (!trimmed) {
-      return "";
-    }
-    const length = Array.from(trimmed).length;
-    if (length === 1) {
-      return `例: 我喜欢${trimmed}。`;
-    }
-    if (length <= 3) {
-      return `例: 这是${trimmed}。`;
-    }
-    return `例: 我在学${trimmed}。`;
-  };
-
-  const setPopupContent = (meaningText, exampleText, highlightToken = "") => {
+  const setPopupContent = (meaningText) => {
     popup.innerHTML = "";
     const meaning = document.createElement("div");
     meaning.className = "lr-popup-meaning";
     meaning.textContent = meaningText;
     popup.appendChild(meaning);
-    if (exampleText) {
-      const example = document.createElement("div");
-      example.className = "lr-popup-example";
-      example.innerHTML = highlightExample(exampleText, highlightToken);
-      popup.appendChild(example);
-    }
   };
 
   const showPopup = async (target, word, mode = "en") => {
@@ -311,7 +292,7 @@
       popup.style.top = `${Math.round(rect.top - 28)}px`;
       return;
     }
-    if (!translateEnabled) {
+    if (mode !== "zh" && !translateEnabled) {
       popup.textContent = "Translation is off.";
       popup.style.display = "block";
       const rect = target.getBoundingClientRect();
@@ -319,7 +300,7 @@
       popup.style.top = `${Math.round(rect.top - 28)}px`;
       return;
     }
-    popup.textContent = `${word} → (translating...)`;
+
     popup.style.display = "block";
     const rect = target.getBoundingClientRect();
     popup.style.left = `${Math.round(rect.left)}px`;
@@ -340,15 +321,16 @@
         return;
       }
       const meaning = entry.defs?.[0] || "definition unavailable";
-      const example = buildDynamicExample(word);
-      setPopupContent(`${word} → ${meaning}`, example, word);
+      const pinyinPart = entry.pinyin ? ` [${entry.pinyin}]` : "";
+      setPopupContent(`${word}${pinyinPart} → ${meaning}`);
       return;
     }
 
+    popup.textContent = `${word} → (translating...)`;
+
     if (cache.has(word)) {
       const cached = cache.get(word);
-      const example = hasChinese(lastTranslatedText) ? `例: ${lastTranslatedText}` : "";
-      setPopupContent(`${word} → ${cached}`, example, word);
+      setPopupContent(`${word} → ${cached}`);
       return;
     }
 
@@ -371,8 +353,7 @@
           return;
         }
         cache.set(word, response.translatedText);
-        const example = hasChinese(lastTranslatedText) ? `例: ${lastTranslatedText}` : "";
-        setPopupContent(`${word} → ${response.translatedText}`, example, word);
+        setPopupContent(`${word} → ${response.translatedText}`);
       }
     );
   };
@@ -435,6 +416,38 @@
     });
   };
 
+  const renderChineseWithPinyin = (targetLine, text) => {
+    targetLine.textContent = "";
+    const engine = globalThis?.pinyinPro?.pinyin;
+    const chars = Array.from(text);
+    chars.forEach((char) => {
+      if (char.trim() === "") {
+        targetLine.appendChild(document.createTextNode(char));
+        return;
+      }
+      if (!hasChinese(char)) {
+        targetLine.appendChild(document.createTextNode(char));
+        return;
+      }
+      const wrapper = document.createElement("span");
+      wrapper.className = "lr-learning-word lr-char-pinyin-stack";
+
+      const hanzi = document.createElement("span");
+      hanzi.className = "lr-stack-char";
+      hanzi.textContent = char;
+
+      const pinyin = document.createElement("span");
+      pinyin.className = "lr-stack-pinyin";
+      pinyin.textContent = typeof engine === "function" ? engine(char, { toneType: "symbol" }) : "";
+
+      wrapper.appendChild(hanzi);
+      wrapper.appendChild(pinyin);
+      wrapper.addEventListener("mouseenter", () => showPopup(wrapper, char, "zh"));
+      wrapper.addEventListener("mouseleave", hidePopup);
+      targetLine.appendChild(wrapper);
+    });
+  };
+
   const renderInteractiveLine = (targetLine, text, mode = "en") => {
     targetLine.textContent = "";
     const tokens = mode === "zh" ? Array.from(text) : text.split(/(\s+)/);
@@ -490,10 +503,15 @@
     }
     if (text !== lastText) {
       lastText = text;
-      renderInteractiveLine(line, text, "en");
+      if (hasChinese(text)) {
+        renderChineseWithPinyin(line, text);
+        pinyinLine.style.display = "none";
+      } else {
+        renderInteractiveLine(line, text, "en");
+        pinyinLine.style.display = "block";
+      }
       if (!translateEnabled) {
         secondaryLine.textContent = "Translation is off.";
-        pinyinLine.textContent = "";
         return;
       }
       if (lineCache.has(text)) {

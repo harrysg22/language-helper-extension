@@ -60,6 +60,27 @@
   cursor: help;
 }
 
+.lr-char-pinyin-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0 4px;
+  vertical-align: top;
+}
+
+.lr-char-pinyin-stack .lr-stack-char {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.lr-char-pinyin-stack .lr-stack-pinyin {
+  font-size: 12px;
+  opacity: 0.9;
+  margin-top: 2px;
+  line-height: 1.2;
+}
+
 #lr-learning-popup {
   position: fixed;
   z-index: 2147483647;
@@ -76,16 +97,6 @@
 .lr-popup-meaning {
   color: #ffe08a;
   font-weight: 600;
-}
-
-.lr-popup-example {
-  color: #9ad1ff;
-  margin-top: 2px;
-}
-
-.lr-popup-highlight {
-  color: #ff7a7a;
-  font-weight: 700;
 }
 
 .lr-stack {
