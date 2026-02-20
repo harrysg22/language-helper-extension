@@ -51,10 +51,19 @@ html.lr-hitv-layout.lr-fullscreen-active {
 .lr-fs-container > *:not(#lr-learning-overlay) {
   flex: 1 1 0 !important;
   min-height: 0 !important;
-  overflow: hidden !important;
+  overflow: visible !important;
 }
 
-/* En fullscreen: position relative para participar en flex y quedar debajo del video */
+/* HiTV fullscreen: position fixed + padding-bottom */
+#lr-learning-overlay.lr-fullscreen.lr-fullscreen-padding {
+  position: fixed !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  z-index: 2147483647;
+}
+
+/* YouTube/otros fullscreen: position relative para participar en flex */
 #lr-learning-overlay.lr-fullscreen {
   position: relative !important;
   left: auto !important;

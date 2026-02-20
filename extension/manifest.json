@@ -3,12 +3,28 @@
   "description": "Step-by-step extension for subtitles learning.",
   "version": "0.1.0",
   "manifest_version": 3,
-  "action": { "default_title": "Language Helper" },
-  "background": { "service_worker": "background.js" },
-  "permissions": ["storage", "scripting"],
+  "icons": {
+    "16": "icons/icon_16.png",
+    "48": "icons/icon_48.png",
+    "128": "icons/icon_128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon_16.png",
+      "48": "icons/icon_48.png",
+      "128": "icons/icon_128.png"
+    },
+    "default_title": "Language Helper",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "storage",
+    "scripting"
+  ],
   "host_permissions": [
-    "https://www.youtube.com/*",
-    "https://www.youtube-nocookie.com/*",
     "https://hitv.vip/*",
     "https://www.hitv.vip/*",
     "https://home.hitv.vip/*",
@@ -18,21 +34,18 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.youtube.com/*",
-        "https://www.youtube-nocookie.com/*"
-      ],
-      "js": ["ui/pinyin-pro.js", "content.js"],
-      "css": ["ui/overlay.css"]
-    },
-    {
-      "matches": [
         "https://hitv.vip/*",
         "https://www.hitv.vip/*",
         "https://home.hitv.vip/*",
         "https://s.hitv.vip/*"
       ],
-      "js": ["ui/pinyin-pro.js", "content.js"],
-      "css": ["ui/overlay.css"],
+      "js": [
+        "ui/pinyin-pro.js",
+        "content.js"
+      ],
+      "css": [
+        "ui/overlay.css"
+      ],
       "all_frames": true
     }
   ]

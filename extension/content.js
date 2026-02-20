@@ -86,7 +86,8 @@
     overlay.classList.toggle("lr-fullscreen", !!fs);
 
     if (lastFsElement && lastFsElement !== fs) {
-      lastFsElement.classList.remove("lr-fs-container", "lr-fs-video");
+      overlay.classList.remove("lr-fullscreen-padding");
+      lastFsElement.classList.remove("lr-fs-container", "lr-fs-video", "lr-fs-padding");
       lastFsElement.style.removeProperty("display");
       lastFsElement.style.removeProperty("flex-direction");
       lastFsElement.style.removeProperty("height");
@@ -94,6 +95,7 @@
       lastFsElement.style.removeProperty("box-sizing");
       lastFsElement.style.removeProperty("--lr-overlay-height");
       lastFsElement.style.removeProperty("object-fit");
+      lastFsElement.style.removeProperty("padding-bottom");
       Array.from(lastFsElement.children).forEach((child) => {
         if (child !== overlay) {
           child.style.removeProperty("flex");
@@ -110,7 +112,13 @@
         fs.classList.add("lr-fs-video");
         fs.style.setProperty("height", "calc(100vh - var(--lr-overlay-height, 22vh))", "important");
         fs.style.setProperty("object-fit", "contain", "important");
+      } else if (isHitv) {
+        fs.classList.add("lr-fs-padding");
+        overlay.classList.add("lr-fullscreen-padding");
+        fs.style.setProperty("box-sizing", "border-box", "important");
+        fs.style.setProperty("padding-bottom", "var(--lr-overlay-height, 22vh)", "important");
       } else {
+        overlay.classList.remove("lr-fullscreen-padding");
         fs.classList.add("lr-fs-container");
         fs.style.setProperty("display", "flex", "important");
         fs.style.setProperty("flex-direction", "column", "important");
@@ -121,7 +129,7 @@
           if (child !== overlay) {
             child.style.setProperty("flex", "1 1 0", "important");
             child.style.setProperty("min-height", "0", "important");
-            child.style.setProperty("overflow", "hidden", "important");
+            child.style.setProperty("overflow", "visible", "important");
           }
         });
       }
@@ -158,7 +166,7 @@
     window.location.hostname.includes("hitv.vip");
 
   if (!isYouTube && !isHitv) {
-    line.textContent = "YouTube and HiTV only (for now).";
+    line.textContent = "HiTV only.";
     return;
   }
 
@@ -189,6 +197,34 @@
   let popupRequestId = 0;
   let captionObserver = null;
   let extensionEnabled = true;
+  const STORAGE_KEY = "lr-extension-enabled";
+
+  const loadExtensionEnabled = (cb) => {
+    chrome.storage.local.get(STORAGE_KEY, (data) => {
+      extensionEnabled = data[STORAGE_KEY] !== false;
+      if (typeof cb === "function") cb();
+    });
+  };
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes[STORAGE_KEY]) return;
+    extensionEnabled = changes[STORAGE_KEY].newValue !== false;
+    if (!extensionEnabled) {
+      stopObserver();
+      if (hitvPollInterval) {
+        clearInterval(hitvPollInterval);
+        hitvPollInterval = null;
+      }
+      if (hitvBodyObserver) {
+        hitvBodyObserver.disconnect();
+        hitvBodyObserver = null;
+      }
+      hidePopup();
+    } else {
+      initCaptions();
+    }
+    updateToggleUI();
+  });
   let translationDirection = "en-zh";
   let translateEnabled = true;
   let pinyinEnabled = true;
@@ -233,7 +269,12 @@
     targetLanguage = "zh";
   };
 
+  const syncOverlayVisibility = () => {
+    overlay.style.display = extensionEnabled ? "" : "none";
+  };
+
   const updateToggleUI = () => {
+    syncOverlayVisibility();
     extensionToggle.textContent = `Extension: ${extensionEnabled ? "ON" : "OFF"}`;
     directionToggle.textContent =
       translationDirection === "zh-en" ? "Direction: ZH→EN" : "Direction: EN→ZH";
@@ -290,6 +331,7 @@
 
   extensionToggle.addEventListener("click", () => {
     extensionEnabled = !extensionEnabled;
+    chrome.storage.local.set({ [STORAGE_KEY]: extensionEnabled });
     if (!extensionEnabled) {
       stopObserver();
       if (hitvPollInterval) {
@@ -867,6 +909,9 @@
     else if (isHitv) initHitvCaptions();
   };
 
-  initCaptions();
-  syncHideNativeSubtitles();
+  loadExtensionEnabled(() => {
+    initCaptions();
+    syncHideNativeSubtitles();
+    updateToggleUI();
+  });
 })();
