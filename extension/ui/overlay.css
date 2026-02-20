@@ -13,6 +13,79 @@
   text-align: center;
 }
 
+html.lr-hitv-layout {
+  height: calc(100vh - 180px) !important;
+  min-height: calc(100vh - 180px) !important;
+  overflow: auto !important;
+}
+
+html.lr-hitv-layout body {
+  min-height: 100% !important;
+  padding-bottom: 0 !important;
+  box-sizing: border-box !important;
+}
+
+#lr-learning-overlay.lr-hitv {
+  background: #000 !important;
+}
+
+#lr-learning-overlay.lr-hitv.lr-fullscreen {
+  background: #000 !important;
+  bottom: 0;
+}
+
+html.lr-hitv-layout.lr-fullscreen-active {
+  height: calc(100vh - 24vh) !important;
+  min-height: calc(100vh - 24vh) !important;
+}
+
+/* Fullscreen container: flex column so video area shrinks above overlay */
+.lr-fs-container {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+
+.lr-fs-container > *:not(#lr-learning-overlay) {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* En fullscreen: position relative para participar en flex y quedar debajo del video */
+#lr-learning-overlay.lr-fullscreen {
+  position: relative !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: 100% !important;
+  padding: 24px 32px 32px;
+  min-height: 22vh;
+  flex-shrink: 0;
+  flex-grow: 0;
+  flex-basis: auto;
+  background: rgba(0, 0, 0, 0.75);
+  order: 999;
+  z-index: 2147483647;
+}
+
+#lr-learning-overlay.lr-fullscreen #lr-learning-line,
+#lr-learning-overlay.lr-fullscreen .lr-char-pinyin-stack .lr-stack-char {
+  font-size: 32px;
+}
+
+#lr-learning-overlay.lr-fullscreen .lr-char-pinyin-stack .lr-stack-pinyin {
+  font-size: 20px;
+}
+
+#lr-learning-overlay.lr-fullscreen #lr-learning-line-pinyin,
+#lr-learning-overlay.lr-fullscreen #lr-learning-line-secondary {
+  font-size: 22px;
+  margin-top: 8px;
+}
+
 #lr-learning-status {
   font-size: 11px;
   opacity: 0.6;
@@ -29,7 +102,10 @@
 
 #lr-learning-toggle,
 #lr-learning-direction,
-#lr-learning-extension {
+#lr-learning-extension,
+#lr-learning-pinyin,
+#lr-learning-hide-en,
+#lr-learning-hide-video-subs {
   padding: 2px 6px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.35);
@@ -40,13 +116,13 @@
 }
 
 #lr-learning-line {
-  font-size: 18px;
+  font-size: 26px;
   font-weight: 600;
 }
 
 #lr-learning-line-pinyin {
   margin-top: 4px;
-  font-size: 14px;
+  font-size: 18px;
   opacity: 0.85;
 }
 
@@ -69,16 +145,21 @@
 }
 
 .lr-char-pinyin-stack .lr-stack-char {
-  font-size: 18px;
+  font-size: 26px;
   font-weight: 600;
   line-height: 1.2;
 }
 
 .lr-char-pinyin-stack .lr-stack-pinyin {
-  font-size: 12px;
+  font-size: 16px;
   opacity: 0.9;
   margin-top: 2px;
   line-height: 1.2;
+}
+
+.lr-char-only {
+  display: inline-block;
+  margin: 0 4px;
 }
 
 #lr-learning-popup {

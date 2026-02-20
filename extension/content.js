@@ -29,6 +29,21 @@
   extensionToggle.type = "button";
   extensionToggle.textContent = "Extension: ON";
 
+  const pinyinToggle = document.createElement("button");
+  pinyinToggle.id = "lr-learning-pinyin";
+  pinyinToggle.type = "button";
+  pinyinToggle.textContent = "Pinyin: ON";
+
+  const hideEnToggle = document.createElement("button");
+  hideEnToggle.id = "lr-learning-hide-en";
+  hideEnToggle.type = "button";
+  hideEnToggle.textContent = "Show EN: ON";
+
+  const hideVideoSubsToggle = document.createElement("button");
+  hideVideoSubsToggle.id = "lr-learning-hide-video-subs";
+  hideVideoSubsToggle.type = "button";
+  hideVideoSubsToggle.textContent = "Hide video subs: ON";
+
   const line = document.createElement("div");
   line.id = "lr-learning-line";
   line.textContent = "Waiting for subtitles...";
@@ -48,6 +63,9 @@
 
   controls.appendChild(extensionToggle);
   controls.appendChild(directionToggle);
+  controls.appendChild(pinyinToggle);
+  controls.appendChild(hideEnToggle);
+  controls.appendChild(hideVideoSubsToggle);
   controls.appendChild(toggle);
 
   overlay.appendChild(status);
@@ -59,15 +77,73 @@
 
   const appendOverlay = () => document.documentElement.appendChild(overlay);
 
+  let lastFsElement = null;
+
   const syncOverlayToFullscreen = () => {
     const fs = document.fullscreenElement ?? document.webkitFullscreenElement;
     const target = fs || document.documentElement;
     if (overlay.parentElement !== target) target.appendChild(overlay);
+    overlay.classList.toggle("lr-fullscreen", !!fs);
+
+    if (lastFsElement && lastFsElement !== fs) {
+      lastFsElement.classList.remove("lr-fs-container", "lr-fs-video");
+      lastFsElement.style.removeProperty("display");
+      lastFsElement.style.removeProperty("flex-direction");
+      lastFsElement.style.removeProperty("height");
+      lastFsElement.style.removeProperty("overflow");
+      lastFsElement.style.removeProperty("box-sizing");
+      lastFsElement.style.removeProperty("--lr-overlay-height");
+      lastFsElement.style.removeProperty("object-fit");
+      Array.from(lastFsElement.children).forEach((child) => {
+        if (child !== overlay) {
+          child.style.removeProperty("flex");
+          child.style.removeProperty("min-height");
+          child.style.removeProperty("overflow");
+        }
+      });
+      lastFsElement = null;
+    }
+
+    if (fs) {
+      lastFsElement = fs;
+      if (fs.tagName === "VIDEO") {
+        fs.classList.add("lr-fs-video");
+        fs.style.setProperty("height", "calc(100vh - var(--lr-overlay-height, 22vh))", "important");
+        fs.style.setProperty("object-fit", "contain", "important");
+      } else {
+        fs.classList.add("lr-fs-container");
+        fs.style.setProperty("display", "flex", "important");
+        fs.style.setProperty("flex-direction", "column", "important");
+        fs.style.setProperty("height", "100vh", "important");
+        fs.style.setProperty("overflow", "hidden", "important");
+        fs.style.setProperty("box-sizing", "border-box", "important");
+        Array.from(fs.children).forEach((child) => {
+          if (child !== overlay) {
+            child.style.setProperty("flex", "1 1 0", "important");
+            child.style.setProperty("min-height", "0", "important");
+            child.style.setProperty("overflow", "hidden", "important");
+          }
+        });
+      }
+    }
+    if (isHitv && !fs) {
+      document.documentElement.classList.toggle("lr-fullscreen-active", false);
+    }
   };
 
   const onFullscreenChange = () => {
     syncOverlayToFullscreen();
+    requestAnimationFrame(updateOverlayHeightVar);
   };
+
+  const updateOverlayHeightVar = () => {
+    const h = overlay.offsetHeight;
+    const target = overlay.parentElement || document.documentElement;
+    target.style.setProperty("--lr-overlay-height", `${h}px`);
+  };
+  const ro = new ResizeObserver(updateOverlayHeightVar);
+  ro.observe(overlay);
+  updateOverlayHeightVar();
 
   document.addEventListener("fullscreenchange", onFullscreenChange);
   document.addEventListener("webkitfullscreenchange", onFullscreenChange);
@@ -92,6 +168,10 @@
 
   if (isYouTube || isHitv) {
     appendOverlay();
+    if (isHitv) {
+      overlay.classList.add("lr-hitv");
+      document.documentElement.classList.add("lr-hitv-layout");
+    }
   }
 
   let lastText = "";
@@ -111,7 +191,36 @@
   let extensionEnabled = true;
   let translationDirection = "en-zh";
   let translateEnabled = true;
+  let pinyinEnabled = true;
+  let showEnTranslation = true;
+  let hideNativeSubtitles = true;
   let translateTimer = null;
+
+  const HIDE_VIDEO_SUBS_CSS = `
+    .hiplayer-subtitle-wrapper,
+    .hiplayer-subtitle-wrapper *,
+    .subtitle-cue,
+    .ytp-caption-window-container,
+    .ytp-caption-window,
+    #caption-window-1 {
+      display: none !important;
+      visibility: hidden !important;
+    }
+  `;
+
+  const syncHideNativeSubtitles = () => {
+    let el = document.getElementById("lr-hide-native-subs");
+    if (hideNativeSubtitles) {
+      if (!el) {
+        el = document.createElement("style");
+        el.id = "lr-hide-native-subs";
+        el.textContent = HIDE_VIDEO_SUBS_CSS;
+        document.head.appendChild(el);
+      }
+    } else if (el) {
+      el.remove();
+    }
+  };
   const translateDebounceMs = 350;
 
   const updateDirection = () => {
@@ -128,6 +237,9 @@
     extensionToggle.textContent = `Extension: ${extensionEnabled ? "ON" : "OFF"}`;
     directionToggle.textContent =
       translationDirection === "zh-en" ? "Direction: ZH→EN" : "Direction: EN→ZH";
+    pinyinToggle.textContent = `Pinyin: ${pinyinEnabled ? "ON" : "OFF"}`;
+    hideEnToggle.textContent = `Show EN: ${showEnTranslation ? "ON" : "OFF"}`;
+    hideVideoSubsToggle.textContent = `Hide video subs: ${hideNativeSubtitles ? "ON" : "OFF"}`;
     toggle.textContent = `Translation: ${translateEnabled ? "ON" : "OFF"}`;
     if (!extensionEnabled) {
       status.textContent = "Language Helper paused";
@@ -206,6 +318,28 @@
       updateLine(currentText);
     }
     updateToggleUI();
+  });
+
+  pinyinToggle.addEventListener("click", () => {
+    pinyinEnabled = !pinyinEnabled;
+    updateToggleUI();
+    if (lastText) {
+      const currentText = lastText;
+      lastText = "";
+      updateLine(currentText);
+    }
+  });
+
+  hideEnToggle.addEventListener("click", () => {
+    showEnTranslation = !showEnTranslation;
+    updateToggleUI();
+    syncSecondaryLineVisibility();
+  });
+
+  hideVideoSubsToggle.addEventListener("click", () => {
+    hideNativeSubtitles = !hideNativeSubtitles;
+    updateToggleUI();
+    syncHideNativeSubtitles();
   });
 
   toggle.addEventListener("click", () => {
@@ -311,17 +445,35 @@
         popup.style.display = "none";
         return;
       }
-      popup.textContent = `${word} → (looking up...)`;
       const entry = await lookupCedict(word);
-      if (requestId !== popupRequestId) {
+      const pinyinPart = entry?.pinyin ? ` [${entry.pinyin}]` : "";
+
+      if (translationDirection === "zh-en" && translateEnabled) {
+        popup.textContent = `${word}${pinyinPart} → (translating...)`;
+        chrome.runtime.sendMessage(
+          {
+            type: "translate",
+            payload: { text: word, source: "zh", target: "en" },
+          },
+          (response) => {
+            if (requestId !== popupRequestId) return;
+            if (response?.ok && response.translatedText) {
+              setPopupContent(`${word}${pinyinPart} → ${response.translatedText}`);
+            } else if (entry) {
+              setPopupContent(`${word}${pinyinPart} → ${entry.defs?.[0] || "definition unavailable"}`);
+            } else {
+              popup.textContent = `${word} → (no match)`;
+            }
+          }
+        );
         return;
       }
+
       if (!entry) {
         popup.textContent = `${word} → (no match)`;
         return;
       }
       const meaning = entry.defs?.[0] || "definition unavailable";
-      const pinyinPart = entry.pinyin ? ` [${entry.pinyin}]` : "";
       setPopupContent(`${word}${pinyinPart} → ${meaning}`);
       return;
     }
@@ -416,7 +568,7 @@
     });
   };
 
-  const renderChineseWithPinyin = (targetLine, text) => {
+  const renderChineseLine = (targetLine, text, showPinyin = true) => {
     targetLine.textContent = "";
     const engine = globalThis?.pinyinPro?.pinyin;
     const chars = Array.from(text);
@@ -430,18 +582,19 @@
         return;
       }
       const wrapper = document.createElement("span");
-      wrapper.className = "lr-learning-word lr-char-pinyin-stack";
+      wrapper.className = showPinyin ? "lr-learning-word lr-char-pinyin-stack" : "lr-learning-word lr-char-only";
 
       const hanzi = document.createElement("span");
       hanzi.className = "lr-stack-char";
       hanzi.textContent = char;
 
-      const pinyin = document.createElement("span");
-      pinyin.className = "lr-stack-pinyin";
-      pinyin.textContent = typeof engine === "function" ? engine(char, { toneType: "symbol" }) : "";
-
       wrapper.appendChild(hanzi);
-      wrapper.appendChild(pinyin);
+      if (showPinyin) {
+        const pinyin = document.createElement("span");
+        pinyin.className = "lr-stack-pinyin";
+        pinyin.textContent = typeof engine === "function" ? engine(char, { toneType: "symbol" }) : "";
+        wrapper.appendChild(pinyin);
+      }
       wrapper.addEventListener("mouseenter", () => showPopup(wrapper, char, "zh"));
       wrapper.addEventListener("mouseleave", hidePopup);
       targetLine.appendChild(wrapper);
@@ -469,9 +622,18 @@
     });
   };
 
+  const syncSecondaryLineVisibility = () => {
+    if (translationDirection === "zh-en" && !showEnTranslation && hasChinese(lastText)) {
+      secondaryLine.style.display = "none";
+    } else {
+      secondaryLine.style.display = "";
+    }
+  };
+
   const renderSecondaryLine = (text) => {
     if (!text) {
       secondaryLine.textContent = "";
+      syncSecondaryLineVisibility();
       return;
     }
     if (!extensionEnabled) {
@@ -482,10 +644,16 @@
     if (mode === "zh") {
       renderChineseStack(text);
       pinyinLine.style.display = "none";
+      syncSecondaryLineVisibility();
       return;
     }
-    pinyinLine.style.display = "block";
+    if (hasChinese(lastText)) {
+      pinyinLine.style.display = "none";
+    } else {
+      pinyinLine.style.display = "block";
+    }
     renderInteractiveLine(secondaryLine, text, mode);
+    syncSecondaryLineVisibility();
   };
 
   const updateLine = (text) => {
@@ -498,13 +666,14 @@
       secondaryLine.textContent = translateEnabled
         ? "Secondary subtitle (waiting...)"
         : "Translation is off.";
+      secondaryLine.style.display = "";
       pinyinLine.textContent = translateEnabled ? "Pinyin (waiting...)" : "";
       return;
     }
     if (text !== lastText) {
       lastText = text;
       if (hasChinese(text)) {
-        renderChineseWithPinyin(line, text);
+        renderChineseLine(line, text, pinyinEnabled);
         pinyinLine.style.display = "none";
       } else {
         renderInteractiveLine(line, text, "en");
@@ -512,6 +681,7 @@
       }
       if (!translateEnabled) {
         secondaryLine.textContent = "Translation is off.";
+        syncSecondaryLineVisibility();
         return;
       }
       if (lineCache.has(text)) {
@@ -525,10 +695,12 @@
           renderSecondaryLine(cached || "");
           pinyinLine.textContent = "";
         }
+        syncSecondaryLineVisibility();
         return;
       }
 
       secondaryLine.textContent = "Translating...";
+      syncSecondaryLineVisibility();
       pinyinLine.textContent = "Pinyin (translating...)";
 
       if (translateTimer) {
@@ -563,6 +735,7 @@
             lineCache.set(requestedText, { translation: translatedText, pinyin });
             lastTranslatedText = translatedText;
             renderSecondaryLine(translatedText);
+            syncSecondaryLineVisibility();
             if (!pinyin && !isPinyinReady()) {
               pinyinLine.textContent = "Pinyin not loaded (reload extension).";
               return;
@@ -695,4 +868,5 @@
   };
 
   initCaptions();
+  syncHideNativeSubtitles();
 })();
